@@ -9,7 +9,7 @@ npm install
 npm start            # http://localhost:3000
 ```
 
-Variables opcionales: `PORT` (por defecto 3000) y `ADMIN_KEY` (clave del botón ⚙ para reiniciar la sala; por defecto `vilaseca`, cámbiala en el VPS).
+Variables opcionales: `PORT` (por defecto 3000), `MAX_QUESTIONS` (preguntas por jugador, por defecto 12), `QUESTION_SECONDS` (segundos por pregunta, por defecto 20) y `ADMIN_KEY` (clave del botón ⚙ para reiniciar la sala; por defecto `vilaseca`, cámbiala en el VPS).
 
 Prueba rápida sin navegador (2 bots + 1 espectador juegan una partida completa):
 
@@ -37,9 +37,31 @@ node scripts/simulacion.js http://127.0.0.1:3000
 | Descuento por tiempo | puntos completos si responde en 5 s; luego −1 punto por segundo (mínimo 5) |
 | Respuesta incorrecta | −5 puntos (no baja de 0; puede bajar de piso) |
 | Tiempo por pregunta | 20 s; si se acaba, aparece otra pregunta sin penalización |
-| Fin | gana el primero en llegar al piso 7; 25 s después vuelve a la selección |
+| Máximo de preguntas | 12 por jugador (las que se agotan por tiempo también cuentan) |
+| Fin | Gana el primero en llegar al piso 7. Si alguien gasta sus 12 preguntas, el otro sigue jugando **mientras todavía pueda alcanzarlo**: sus puntos + 20 por cada pregunta que le queda (el mejor caso) tiene que ser igual o mayor que los puntos del que terminó. Cuando esa suma ya no le da, la partida termina y la pantalla final lo explica (ej.: "tenía 30 pts y le quedaban 3 preguntas (máx. +60 = 90 pts), menos que los 100 pts de Pol"). Si los dos gastan sus 12, gana quien tenga más puntos; si empatan, más aciertos; si siguen iguales, empate. Se muestra el personaje ganador con trofeo y confeti; 25 s después vuelve a la selección |
 
 Con estas reglas, para llegar al piso 7 hacen falta 120 puntos (6 aciertos rápidos como mínimo).
+
+### Ascensor y reacciones
+
+- La cabina sube **de forma continua con cada punto** (no solo al completar un piso): 5 o 10 puntos mueven la cabina media piso o un cuarto. El hueco tiene marcas cada 10 puntos, una estela del color del jugador y los puntos escritos junto a la cabina y en cada piso (0, 20, 40… 120 pts). La altura del ascensor se ajusta al alto de la pantalla (variable CSS `--row`).
+- **Emoticones en burbuja** (sobre la cabina y junto al retrato del jugador; los decide el servidor, así que todos ven lo mismo). Se editan en la tabla `EMOTES` de `server/index.js`:
+
+| Evento | Emoticón |
+|---|---|
+| Empieza la partida | 💪 😤 🤞 |
+| Acierto rápido (3 s o menos) | ⚡ 😉 👌 |
+| Sube de piso | 🎉 🙌 🆙 |
+| Racha de 2 / 3 / 4 / 5 / 6+ aciertos | 😄 / 😎 🤩 / 🔥 🥳 / 🚀 🤯 / 👑 🏆 🦸 (más grandes mientras sube la racha) |
+| 1 error / 2 seguidos | 🙈 😳 😅 / 😬 😰 🥴 |
+| 3 o más errores seguidos | 😭 😢 (sonido triste) |
+| Baja de piso | 😱 📉 😵 |
+| Se acaba el tiempo | 🥱 😴 ⏰ |
+| 10 s sin responder | 🤔 🧐 |
+| El rival lo pasa en puntos | 😤 😠 😒 |
+| El rival está a un piso de ganar | 😰 😨 |
+
+El panel de cada jugador muestra también su racha (🔥 racha ×N).
 
 ## Personalizar contenido
 

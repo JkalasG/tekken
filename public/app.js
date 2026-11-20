@@ -56,6 +56,8 @@
     wrong: () => { tone(160, 0.28, 'sawtooth', 0.12); },
     timeout: () => { tone(220, 0.15, 'square', 0.08); tone(150, 0.25, 'square', 0.08, 0.14); },
     floor: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'triangle', 0.12, i * 0.08)),
+    cry: () => [440, 392, 330, 262].forEach((f, i) => tone(f, 0.16, 'sine', 0.1, i * 0.12)),
+    cheer: () => [784, 988, 1175].forEach((f, i) => tone(f, 0.09, 'triangle', 0.1, i * 0.06)),
     select: () => tone(520, 0.06, 'square', 0.05),
     lock: () => { tone(440, 0.08, 'square', 0.1); tone(880, 0.18, 'square', 0.1, 0.08); },
     vs: () => { tone(110, 0.5, 'sawtooth', 0.15); tone(220, 0.5, 'square', 0.08, 0.05); },
@@ -94,7 +96,11 @@
     socket.emit('hello', { token });
   });
   socket.on('disconnect', () => { $('#reconnect').hidden = false; });
+  let BUILD = null;
   socket.on('init', (d) => {
+    // la página se actualizó mientras esta pestaña estaba abierta: recargar
+    if (BUILD && d.build && d.build !== BUILD) { location.reload(); return; }
+    BUILD = d.build;
     CFG = d.cfg; EMP = d.empleados;
     buildGrid();
     buildBuilding();
@@ -126,6 +132,15 @@
       else if (r.timedOut) sfx.timeout();
       else if (r.correct) sfx.right();
       else sfx.wrong();
+    }
+  });
+
+  // Reacciones con emoticones (las decide el servidor)
+  socket.on('emote', (m) => {
+    showEmote(m);
+    if (ME === m.slot || ME === null) {
+      if (m.kind === 'cry') sfx.cry();
+      else if (m.kind === 'joy' && m.level >= 3) sfx.cheer();
     }
   });
 
@@ -248,6 +263,7 @@
     // dos filas como en Tekken: "?" al inicio de la primera y "?" al final de la segunda
     const total = N + 2;
     const per = Math.ceil(total / 2);
+    $('.tk2').style.setProperty('--per', per); // columnas por fila (el CSS calcula con esto el espacio libre para el nombre)
     const rows = [0, 1].map((r) => {
       const cells = [];
       for (let c = r * per; c < Math.min(total, (r + 1) * per); c++) cells.push(c);
@@ -489,7 +505,7 @@
       const e = empOf(s);
       $(`#vs${s}`).innerHTML = `
         <div class="tagp">JUGADOR ${s + 1}</div>
-        ${portrait(e)}
+        <div class="vfig" style="--c:${e ? e.color : '#888'}">${e ? figure(e) : ''}</div>
         <div class="cname" style="--c:${e ? e.color : '#c9a0ff'}">${e ? esc(e.nombre) : ''}</div>
         <div class="ccargo">${e ? esc(e.cargo) : ''}</div>`;
     });
@@ -503,11 +519,15 @@
     let html = '';
     for (let f = 1; f <= CFG.TARGET_FLOOR; f++) {
       const top = f === CFG.TARGET_FLOOR;
-      html += `<div class="rowf ${top ? 'top' : ''}"><span>${f}</span><span class="office">${top ? '🏆' : ''}</span><span>${f}</span></div>`;
+      const pts = (f - CFG.START_FLOOR) * CFG.POINTS_PER_FLOOR;
+      const lab = `<span class="fn">${f}<small>${pts} pts</small></span>`;
+      html += `<div class="rowf ${top ? 'top' : ''}">${lab}<span class="office">${top ? '🏆' : ''}</span>${lab}</div>`;
     }
     rows.innerHTML = html;
   }
 
+  // La cabina sube de forma continua según los puntos (cada punto cuenta), no solo al completar un piso.
+  const cabPos = (points) => CFG.START_FLOOR + Math.min(points, (CFG.TARGET_FLOOR - CFG.START_FLOOR) * CFG.POINTS_PER_FLOOR) / CFG.POINTS_PER_FLOOR;
   function updateCabs() {
     [0, 1].forEach((s) => {
       const cab = $(`#cab-${s}`);
@@ -515,14 +535,29 @@
       const e = empOf(s);
       if (!cab.dataset.char || cab.dataset.char !== String(p.charIdx)) {
         cab.dataset.char = String(p.charIdx);
-        cab.innerHTML = `<span class="ctag">J${s + 1}</span>${e ? avatar(e) : ''}`;
+        cab.innerHTML = `<span class="ctag">J${s + 1}</span>${e ? avatar(e) : ''}<span class="cpts"></span>`;
         cab.style.background = e ? `linear-gradient(180deg, color-mix(in srgb, ${e.color} 55%, white), ${e.color})` : '';
+        cab.parentElement.style.setProperty('--c', e ? e.color : '#8f9cc8');
       }
-      const f = p.floor;
-      const prev = Number(cab.style.getPropertyValue('--f')) || CFG.START_FLOOR;
-      cab.style.setProperty('--f', f);
-      cab.classList.toggle('arrived', f >= CFG.TARGET_FLOOR);
-      cab.dataset.prev = prev;
+      cab.parentElement.style.setProperty('--f', cabPos(p.points));
+      const cp = cab.querySelector('.cpts');
+      if (cp) cp.textContent = `${p.points} pts`;
+      cab.classList.toggle('arrived', p.floor >= CFG.TARGET_FLOOR);
+    });
+  }
+
+  // Burbuja de emoticón sobre la cabina y junto al retrato del jugador
+  function showEmote({ slot, emoji, kind, level }) {
+    if (!S || $('#v-game').hidden) return;
+    const hosts = [$(`#cab-${slot}`), $(`#panel-${slot} .ph`)];
+    hosts.forEach((host, i) => {
+      if (!host) return;
+      host.querySelectorAll(':scope > .emote').forEach((n) => n.remove());
+      const b = document.createElement('div');
+      b.className = `emote ${i === 0 ? 'at-cab' : 'at-panel'} k-${kind} l${Math.min(Math.max(level || 1, 1), 5)}`;
+      b.innerHTML = `<span>${emoji}</span>`;
+      host.appendChild(b);
+      setTimeout(() => b.remove(), 2800);
     });
   }
 
@@ -530,8 +565,9 @@
   function resetGameUi() {
     [0, 1].forEach((s) => {
       const cab = $(`#cab-${s}`);
-      cab.style.setProperty('--f', CFG.START_FLOOR);
+      cab.parentElement.style.setProperty('--f', CFG.START_FLOOR);
       cab.dataset.char = '';
+      cab.querySelectorAll('.emote, .pop').forEach((n) => n.remove());
     });
     buildPanels();
     renderGame();
@@ -546,8 +582,9 @@
           <div class="pn"><b class="name">—</b><span class="role"></span></div>
           <div class="score"><b class="pts">0</b><small>PUNTOS</small></div>
         </div>
-        <div class="pstats"><span class="fl">Piso 1</span><span class="ok">✔ 0</span><span class="ko">✖ 0</span></div>
+        <div class="pstats"><span class="fl">Piso 1</span><span class="ok">✔ 0</span><span class="ko">✖ 0</span><span class="qs"></span><span class="st"></span></div>
         <div class="pbar" title="Progreso al siguiente piso"><i></i></div>
+        <div class="endnote" hidden></div>
         <div class="qbox">
           <div class="qwrap">
             <div class="timer"><i></i><b>20</b></div>
@@ -587,6 +624,41 @@
       $('.fl', el).textContent = `Piso ${p.floor} / ${CFG.TARGET_FLOOR}`;
       $('.ok', el).textContent = `✔ ${p.correct}`;
       $('.ko', el).textContent = `✖ ${p.wrong}${p.timeouts ? ` · ⏰ ${p.timeouts}` : ''}`;
+      const left = CFG.MAX_QUESTIONS - p.used;
+      const qs = $('.qs', el);
+      qs.textContent = `❓ ${Math.min(p.used, CFG.MAX_QUESTIONS)}/${CFG.MAX_QUESTIONS}`;
+      qs.className = `qs${left <= 2 && left > 0 ? ' last' : ''}`;
+      if (S.ending) $$('.opt', el).forEach((b) => { b.disabled = true; });
+      // Cuando uno ya terminó sus preguntas y el otro todavía puede alcanzarlo, se explica la cuenta
+      const note = $('.endnote', el);
+      const M = CFG.MAX_QUESTIONS;
+      const finished = S.players.filter((q) => q.used >= M);
+      if (S.phase === 'playing' && !S.ending && finished.length === 1) {
+        const fs_ = S.players.indexOf(finished[0]);
+        const os_ = 1 - fs_;
+        const fin = S.players[fs_];
+        const oth = S.players[os_];
+        const rem = M - oth.used;
+        const per = CFG.QUESTION_POINTS;
+        const fname = empOf(fs_) ? empOf(fs_).nombre : `Jugador ${fs_ + 1}`;
+        const oname = empOf(os_) ? empOf(os_).nombre : `Jugador ${os_ + 1}`;
+        const diff = fin.points - oth.points;
+        let html;
+        if (s === fs_) {
+          html = `🏁 Terminaste tus ${M} preguntas. <b>${esc(oname)}</b> aún puede alcanzarte: tiene ${oth.points} pts y le quedan ${rem} pregunta${rem === 1 ? '' : 's'} (máx. +${rem * per} = ${oth.points + rem * per} pts).`;
+        } else if (diff < 0) {
+          html = `¡Vas ganando por ${-diff} pts! <b>${esc(fname)}</b> ya terminó con ${fin.points} pts. Te quedan ${rem} pregunta${rem === 1 ? '' : 's'}.`;
+        } else {
+          html = `<b>${esc(fname)}</b> ya terminó con ${fin.points} pts. Te quedan ${rem} pregunta${rem === 1 ? '' : 's'} (máx. +${rem * per}): para alcanzarlo necesitas sumar ${diff} pts o más.`;
+        }
+        if (note.innerHTML !== html) note.innerHTML = html;
+        note.hidden = false;
+      } else {
+        note.hidden = true;
+      }
+      const st = $('.st', el);
+      st.textContent = p.streak >= 2 ? `🔥 racha ×${p.streak}` : '';
+      st.className = `st${p.streak >= 4 ? ' hot' : ''}`;
       const prog = p.floor >= CFG.TARGET_FLOOR ? 100 : ((p.points % CFG.POINTS_PER_FLOOR) / CFG.POINTS_PER_FLOOR) * 100;
       $('.pbar i', el).style.width = `${prog}%`;
 
@@ -607,7 +679,7 @@
     const el = $(`#panel-${slot}`);
     if (!el || !$('.qwrap', el)) return;
     const q = p.q;
-    $('.qn', el).textContent = `PREGUNTA ${q.n}`;
+    $('.qn', el).textContent = `PREGUNTA ${q.n} / ${q.max || CFG.MAX_QUESTIONS}`;
     $('.qtext', el).textContent = q.text;
     const fb = $('.fb', el);
     fb.textContent = ''; fb.className = 'fb';
@@ -709,25 +781,128 @@
     phaseTimers.push(setTimeout(() => { ov.hidden = true; }, 3400));
   }
 
+  // ---------- Pantalla del ganador: personaje grande, trofeo y confeti ----------
+  const TROPHY_SVG = `
+    <svg viewBox="0 0 130 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#fff6c2"/><stop offset=".42" stop-color="#ffd23f"/><stop offset="1" stop-color="#c77700"/>
+        </linearGradient>
+        <linearGradient id="tg2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffe58a"/><stop offset="1" stop-color="#b86a00"/>
+        </linearGradient>
+      </defs>
+      <path d="M32 24 H14 C12 52 26 68 42 72" fill="none" stroke="url(#tg2)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M98 24 H116 C118 52 104 68 88 72" fill="none" stroke="url(#tg2)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M30 10 H100 V56 C100 86 82 102 65 104 C48 102 30 86 30 56 Z" fill="url(#tg)" stroke="#7a4b00" stroke-width="3.5" stroke-linejoin="round"/>
+      <path d="M40 18 H54 V60 C54 78 48 88 42 92 C36 82 36 60 40 18 Z" fill="#fff" opacity=".35"/>
+      <path d="M65 28 l5.6 11.6 12.8 1.8 -9.3 8.9 2.3 12.7 -11.4 -6.1 -11.4 6.1 2.3 -12.7 -9.3 -8.9 12.8 -1.8 z" fill="#fff6c2" stroke="#a35f00" stroke-width="2.2" stroke-linejoin="round"/>
+      <rect x="57" y="104" width="16" height="26" fill="url(#tg2)" stroke="#7a4b00" stroke-width="3"/>
+      <path d="M36 150 H94 L88 128 H42 Z" fill="url(#tg)" stroke="#7a4b00" stroke-width="3.5" stroke-linejoin="round"/>
+      <rect x="28" y="146" width="74" height="12" rx="4" fill="url(#tg2)" stroke="#7a4b00" stroke-width="3.5"/>
+    </svg>`;
+
+  // Confeti disparado desde las dos esquinas de abajo + lluvia, dibujado en un canvas
+  function fireConfetti(canvas) {
+    const ctx = canvas.getContext('2d');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let W = 0, H = 0;
+    const resize = () => {
+      W = canvas.clientWidth; H = canvas.clientHeight;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    const colors = ['#ffd23f', '#ff3b4e', '#2f8bff', '#ffffff', '#ff7ad9', '#2ee59d', '#ff9a3d'];
+    const parts = [];
+    const add = (x, y, vx, vy) => parts.push({
+      x, y, vx, vy, w: 6 + Math.random() * 8, h: 4 + Math.random() * 7, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4,
+      c: colors[(Math.random() * colors.length) | 0], life: 0, max: 240 + Math.random() * 140, round: Math.random() < 0.25
+    });
+    const burst = (fromLeft, n) => {
+      const speed = Math.max(11, H * 0.026);
+      for (let i = 0; i < n; i++) {
+        const a = (fromLeft ? -1.05 : -Math.PI + 1.05) + (Math.random() - 0.5) * 0.95;
+        const v = speed * (0.55 + Math.random() * 0.75);
+        add(fromLeft ? W * 0.03 : W * 0.97, H + 6, Math.cos(a) * v, Math.sin(a) * v);
+      }
+    };
+    const alive = () => canvas.isConnected && !canvas.closest('[hidden]');
+    const scale = reduce ? 0.35 : 1;
+    [0, 350, 900, 1700, 3000, 4800].forEach((t, k) => {
+      phaseTimers.push(setTimeout(() => { if (!alive()) return; resize(); burst(true, Math.round((k === 0 ? 90 : 60) * scale)); burst(false, Math.round((k === 0 ? 90 : 60) * scale)); }, t));
+    });
+    const rainIv = setInterval(() => {
+      if (!alive()) return clearInterval(rainIv);
+      for (let i = 0; i < 2; i++) add(Math.random() * W, -10, (Math.random() - 0.5) * 1.6, 1 + Math.random() * 2.2);
+    }, reduce ? 400 : 110);
+    phaseTimers.push(setTimeout(() => clearInterval(rainIv), 12000));
+    let last = performance.now();
+    const tick = (now) => {
+      if (!alive()) return;
+      const dt = Math.min(2.2, (now - last) / 16.7);
+      last = now;
+      ctx.clearRect(0, 0, W, H);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        p.vy += 0.3 * dt; p.vx *= 0.996; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life += dt;
+        if (p.y > H + 30 || p.life > p.max) { parts.splice(i, 1); continue; }
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, (p.max - p.life) / 40);
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(1, Math.cos(p.life * 0.18 + p.rot));
+        ctx.fillStyle = p.c;
+        if (p.round) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.2, 0, 6.283); ctx.fill(); } else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
   function showEnd() {
     const w = S.winner;
-    const e = empOf(w);
-    const wp = S.players[w];
-    const lp = S.players[1 - w];
-    const le = empOf(1 - w);
-    const iWon = ME === w;
-    const title = ME === null ? '¡LLEGÓ A LA AGENCIA VILASECA S.A.!' : (iWon ? '¡GANASTE! 🎉' : 'Perdiste esta vez');
-    const stat = (p, ee, s) => `<div><b>J${s + 1} · ${ee ? esc(ee.nombre) : ''}</b>Piso ${p.floor} · ${p.points} pts<br>✔ ${p.correct} · ✖ ${p.wrong} · ⏰ ${p.timeouts}</div>`;
+    const draw = w === null || w === undefined;
+    const byLimit = S.endReason === 'limit';
+    const e = draw ? null : empOf(w);
+    const wp = draw ? null : S.players[w];
+    const lp = draw ? null : S.players[1 - w];
+    const iWon = !draw && ME === w;
+    const wname = e ? esc(e.nombre) : '';
+    const title = draw ? '¡EMPATE!' : (iWon ? '¡GANASTE!' : `¡GANA ${wname}!`);
+    let sub;
+    if (draw) sub = `Los dos terminaron sus ${CFG.MAX_QUESTIONS} preguntas con el mismo resultado`;
+    else if (S.endReason === 'catchup' && S.endInfo) {
+      const i = S.endInfo;
+      const oname = empOf(i.other) ? esc(empOf(i.other).nombre) : `Jugador ${i.other + 1}`;
+      sub = `Terminó la partida: ${oname} tenía ${i.otherPoints} pts y le quedaban ${i.remaining} pregunta${i.remaining === 1 ? '' : 's'} (máx. +${i.remaining * i.perQuestion} = ${i.best} pts), menos que los ${i.finisherPoints} pts de ${wname}. Ya no le alcanzan las preguntas.`;
+    }
+    else if (byLimit) sub = `Los dos terminaron sus ${CFG.MAX_QUESTIONS} preguntas · ganó por puntos: ${wp.points} a ${lp.points}`;
+    else sub = `¡Llegó primero a la Agencia Vilaseca S.A.! · piso ${CFG.TARGET_FLOOR}`;
+    if (!draw && ME !== null && !iWon) sub += ' · ¡Revancha!';
+
+    let stage;
+    if (draw) {
+      stage = [0, 1].map((s) => { const ee = empOf(s); return `<div class="v-fig small">${ee ? figure(ee) : ''}</div>`; }).join('');
+    } else {
+      stage = `<div class="v-fig">${figure(e)}</div><div class="v-trophy">${TROPHY_SVG}</div>`;
+    }
+    const nameTxt = draw ? [0, 1].map((s) => (empOf(s) ? esc(empOf(s).nombre) : '')).join(' &amp; ') : wname;
+    const color = e ? e.color : '#ffd23f';
+
     const ov = $('#endscreen');
     ov.innerHTML = `
-      <div class="end-card">
-        <h2>${title}</h2>
-        ${portrait(e)}
-        <div class="winname">${e ? esc(e.nombre) : ''}</div>
-        <div class="ccargo">Jugador ${w + 1} llegó primero al piso ${CFG.TARGET_FLOOR}</div>
-        <div class="res">${stat(S.players[0], empOf(0), 0)}${stat(S.players[1], empOf(1), 1)}</div>
-        ${ME !== null ? '<button class="btn gold" id="b-again">VOLVER A ELEGIR PERSONAJES</button>' : ''}
-        <div class="auto">Nueva selección en <span id="auto-n">${Math.round(CFG.FINISHED_RESET_MS / 1000)}</span> s</div>
+      <div class="victory ${draw ? 'is-draw' : ''}" style="--c:${color}">
+        <div class="v-rays"></div>
+        <div class="v-title">${title}</div>
+        <div class="v-stage">${stage}</div>
+        <div class="v-name">${nameTxt}</div>
+        <div class="v-sub">${sub}</div>
+        <div class="v-actions">
+          ${ME !== null ? '<button class="btn gold" id="b-again">VOLVER A ELEGIR PERSONAJES</button>' : ''}
+          <div class="auto">Nueva selección en <span id="auto-n">${Math.round(CFG.FINISHED_RESET_MS / 1000)}</span> s</div>
+        </div>
+        <canvas class="confetti-canvas"></canvas>
       </div>`;
     ov.hidden = false;
     const again = $('#b-again');
@@ -738,15 +913,7 @@
       if (n <= 0) clearInterval(iv);
     }, 1000);
     phaseTimers.push(setTimeout(() => clearInterval(iv), CFG.FINISHED_RESET_MS));
-    for (let i = 0; i < 40; i++) {
-      const c = document.createElement('span');
-      c.className = 'confetti';
-      c.textContent = ['🎉', '✨', '🏆', '⭐', '🎊'][i % 5];
-      c.style.left = `${Math.random() * 100}%`;
-      c.style.animationDuration = `${3 + Math.random() * 3}s`;
-      c.style.animationDelay = `${Math.random() * 2}s`;
-      ov.appendChild(c);
-    }
+    fireConfetti($('.confetti-canvas', ov));
     sfx.win();
   }
 
