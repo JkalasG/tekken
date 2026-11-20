@@ -1,0 +1,20 @@
+{
+  "name": "ascensor-vilaseca",
+  "version": "1.0.0",
+  "description": "Juego multijugador en tiempo real: sube al piso 7 respondiendo preguntas. Agencia Vilaseca S.A.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test:sim": "node scripts/simulacion.js http://127.0.0.1:3000"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

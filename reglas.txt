@@ -1,0 +1,17 @@
+vamos a crear un juego con lo siguiente:
+sera para una actividad de exposicion y tendra preguntas para el analisis de estass
+en primera tendra lo siguiente:
+
+una pantalla para seleccionar personajes tipo teken tag algo asi tendra la opcion para seleccionar al azar como en teken
+los personajes seran empleados y ambos se enfrentaran en vs ok 
+
+pero o se enfrentaran en vs ok la tematica de enfrentamiento sera la siguiente:
+
+ambos tendran que subir al piso 7 de un edificio por el acensor para subir responderan pregntas acumulando puntos 
+cada pregunta vale puntos 20 puntos por cada 20 puntos respondidos suben un piso se le descuenta el tiempo que tardan en responder 
+para hacerlo justo no tendran la misma pregunta ambos si se equivocan les quitan 5 puntos mientras esten en el
+ultimo piso no es nesesario que le descuenten el primero en llegar al piso 7 que es 
+el piso donde trabajamos la oficina se llama agencia vilaseca s.a.
+
+tienen preguntas o algo asi debe lograr poder entrar desde el mismo enlace y poder jugar entre ambos
+que te parece tienes dudas o algo??

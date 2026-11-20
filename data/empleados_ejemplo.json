@@ -1,0 +1,16 @@
+[
+  {"id":"pol","nombre":"Pol","cargo":"Agencia Vilaseca","color":"#4aa3ff","foto":"pol_cara.png","figura":"pol.png"},
+  {"id":"ronald","nombre":"Ronald","cargo":"Agencia Vilaseca","color":"#ff8a4c","foto":"ronald_cara.png","figura":"ronald.png"},
+  {"id":"gerente","nombre":"El Gerente","cargo":"Gerencia General","emoji":"👨‍💼","color":"#e0b341"},
+  {"id":"contadora","nombre":"La Contadora","cargo":"Contabilidad","emoji":"👩‍💼","color":"#35c28a"},
+  {"id":"sistemas","nombre":"El de Sistemas","cargo":"Soporte y TI","emoji":"👨‍💻","color":"#4aa3ff"},
+  {"id":"abogada","nombre":"La Abogada","cargo":"Asesoría Legal","emoji":"👩‍⚖️","color":"#b678ff"},
+  {"id":"auditor","nombre":"El Auditor","cargo":"Auditoría","emoji":"🕵️","color":"#9aa7b8"},
+  {"id":"cajera","nombre":"La Cajera","cargo":"Caja","emoji":"👩‍🏫","color":"#ff8a4c"},
+  {"id":"ventas","nombre":"El de Ventas","cargo":"Comercial","emoji":"🤵","color":"#ff5c7a"},
+  {"id":"secretaria","nombre":"La Secretaria","cargo":"Secretaría","emoji":"💁‍♀️","color":"#f06fc0"},
+  {"id":"archivista","nombre":"El Archivista","cargo":"Archivo","emoji":"👨‍🔬","color":"#7ad1d1"},
+  {"id":"mensajero","nombre":"El Mensajero","cargo":"Logística","emoji":"🏃‍♂️","color":"#e8693a"},
+  {"id":"rrhh","nombre":"La de RR.HH.","cargo":"Recursos Humanos","emoji":"👩‍⚕️","color":"#58d68d"},
+  {"id":"practicante","nombre":"El Practicante","cargo":"Pasante","emoji":"👨‍🎓","color":"#c7d33f"}
+]

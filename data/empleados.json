@@ -1,0 +1,18 @@
+[
+  {"id":"pol","nombre":"Pol","cargo":"Agencia Vilaseca","color":"#4aa3ff","foto":"pol_cara.png","figura":"pol.png"},
+  {"id":"ronald","nombre":"Ronald","cargo":"Agencia Vilaseca","color":"#ff8a4c","foto":"ronald_cara.png","figura":"ronald.png"},
+  {"id":"andrea","nombre":"Andrea","cargo":"Agencia Vilaseca","color":"#b678ff","foto":"andrea_cara.png","figura":"andrea.png"},
+  {"id":"ariel","nombre":"Ariel","cargo":"Agencia Vilaseca","color":"#35c28a","foto":"ariel_cara.png","figura":"ariel.png"},
+  {"id":"cathy","nombre":"Cathy","cargo":"Agencia Vilaseca","color":"#f0b35c","foto":"cathy_cara.png","figura":"cathy.png"},
+  {"id":"cruzenka","nombre":"Cruzenka","cargo":"Agencia Vilaseca","color":"#ff5c7a","foto":"cruzenka_cara.png","figura":"cruzenka.png"},
+  {"id":"felix","nombre":"Felix","cargo":"Agencia Vilaseca","color":"#2fd1c5","foto":"felix_cara.png","figura":"felix.png"},
+  {"id":"gabi","nombre":"Gabi","cargo":"Agencia Vilaseca","color":"#f06fc0","foto":"gabi_cara.png","figura":"gabi.png"},
+  {"id":"geovis","nombre":"Geovis","cargo":"Agencia Vilaseca","color":"#7ad1d1","foto":"geovis_cara.png","figura":"geovis.png"},
+  {"id":"joseluis","nombre":"José Luis","cargo":"Agencia Vilaseca","color":"#ffd23f","foto":"joseluis_cara.png","figura":"joseluis.png"},
+  {"id":"kevin","nombre":"Kevin","cargo":"Agencia Vilaseca","color":"#5b8cff","foto":"kevin_cara.png","figura":"kevin.png"},
+  {"id":"laura","nombre":"Laura","cargo":"Agencia Vilaseca","color":"#e8693a","foto":"laura_cara.png","figura":"laura.png"},
+  {"id":"mijael","nombre":"Mijael","cargo":"Agencia Vilaseca","color":"#c7d33f","foto":"mijael_cara.png","figura":"mijael.png"},
+  {"id":"pamela","nombre":"Pamela","cargo":"Agencia Vilaseca","color":"#58d68d","foto":"pamela_cara.png","figura":"pamela.png"},
+  {"id":"silvia","nombre":"Silvia","cargo":"Agencia Vilaseca","color":"#d96bff","foto":"silvia_cara.png","figura":"silvia.png"},
+  {"id":"tatiana","nombre":"Tatiana","cargo":"Agencia Vilaseca","color":"#ff7a9c","foto":"tatiana_cara.png","figura":"tatiana.png"}
+]
