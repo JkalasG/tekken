@@ -1,0 +1,35 @@
+# Ascensor Vilaseca — despliegue con Docker Compose (requiere Docker Compose v2: `docker compose`).
+#
+#   cp .env.example .env        # y edita ADMIN_KEY (y el puerto si hace falta)
+#   docker compose up -d --build
+#
+# El juego queda en http://IP-DEL-SERVIDOR:3000 (o el puerto que pongas en HOST_PORT).
+name: ascensor-vilaseca
+
+services:
+  ascensor:
+    build: .
+    image: ascensor-vilaseca:latest
+    restart: unless-stopped
+    init: true                      # cierra bien el proceso al detener el contenedor
+    ports:
+      # BIND_ADDR=127.0.0.1 si lo publicas detrás de Nginx/Traefik en el mismo servidor; 0.0.0.0 para acceso directo
+      - "${BIND_ADDR:-0.0.0.0}:${HOST_PORT:-3000}:3000"
+    environment:
+      PORT: "3000"                  # puerto interno del contenedor (no lo cambies; usa HOST_PORT para el de afuera)
+      DB_PATH: /data/ascensor.db
+      ADMIN_KEY: ${ADMIN_KEY:?Define ADMIN_KEY en el archivo .env (copia .env.example a .env)}
+      MAX_QUESTIONS: ${MAX_QUESTIONS:-12}
+      QUESTION_SECONDS: ${QUESTION_SECONDS:-20}
+    volumes:
+      - ascensor-data:/data         # base de datos SQLite: preguntas, ranking e historial
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ascensor-data:

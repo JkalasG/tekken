@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a1020">
-  <title>Ascensor Vilaseca</title>
+  <title>Acciones para luchar contra la corrupción, contrabando y soborno</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%A2%3C/text%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="preload" href="fonts/rajdhani-600.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/bebas-neue-400.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,6 +18,8 @@
     <div class="top-right">
       <span id="me-chip" class="chip"></span>
       <button id="btn-leave" class="mini" hidden>Salir</button>
+      <button id="btn-rank" class="mini" title="Ranking e historial de VS">🏆</button>
+      <button id="btn-music" class="mini" title="Música de fondo">🎵</button>
       <button id="btn-sound" class="mini" title="Sonido">🔊</button>
       <button id="btn-admin" class="mini" title="Reiniciar sala (administrador)">⚙</button>
     </div>
@@ -28,12 +30,13 @@
     <section id="v-menu" class="view" hidden>
       <div class="menu-card">
         <div class="menu-ico">🏢</div>
-        <h1>ASCENSOR<span>VILASECA</span></h1>
-        <p class="sub">Sube al <b>piso 7</b> respondiendo preguntas. El primero en llegar a la <b>Agencia Vilaseca S.A.</b> gana.</p>
+        <h1 class="titulo-largo">ACCIONES PARA LUCHAR CONTRA LA<span>CORRUPCIÓN, CONTRABANDO Y SOBORNO</span></h1>
+        <p class="sub">Responde preguntas y sube al <b>piso 7</b>. El primero en llegar a la <b>Agencia Vilaseca S.A.</b> gana.</p>
         <div class="menu-btns">
           <button class="btn big p0" data-take="0">JUGADOR 1<small id="m-s0"></small></button>
           <button class="btn big p1" data-take="1">JUGADOR 2<small id="m-s1"></small></button>
           <button class="btn ghost" id="m-spec">👀 SOLO MIRAR (espectador)</button>
+          <button class="btn ghost" id="m-rank">🏆 RANKING E HISTORIAL</button>
         </div>
         <p id="menu-note" class="note"></p>
       </div>
@@ -58,10 +61,12 @@
 
     <!-- VS -->
     <section id="v-vs" class="view" hidden>
+      <div class="vs-bg"><i class="rays"></i><i class="dots"></i><i class="bolt2"></i><i class="bolt"></i><div class="vs-sparks"><i style="--x:44%;--s:7px;--d:3.0s;--w:0.1s;--dx:90px"></i><i style="--x:71%;--s:6px;--d:2.9s;--w:0.1s;--dx:9px"></i><i style="--x:30%;--s:5px;--d:2.4s;--w:1.0s;--dx:-59px"></i><i style="--x:14%;--s:11px;--d:2.3s;--w:1.4s;--dx:-63px"></i><i style="--x:83%;--s:5px;--d:3.4s;--w:1.0s;--dx:-64px"></i><i style="--x:8%;--s:7px;--d:2.8s;--w:0.4s;--dx:-90px"></i><i style="--x:76%;--s:9px;--d:3.3s;--w:1.7s;--dx:-94px"></i><i style="--x:77%;--s:8px;--d:2.9s;--w:1.4s;--dx:-104px"></i><i style="--x:75%;--s:5px;--d:3.4s;--w:1.2s;--dx:16px"></i><i style="--x:57%;--s:10px;--d:3.1s;--w:2.3s;--dx:-28px"></i><i style="--x:41%;--s:8px;--d:3.8s;--w:1.7s;--dx:-58px"></i><i style="--x:13%;--s:9px;--d:3.3s;--w:2.2s;--dx:66px"></i><i style="--x:60%;--s:9px;--d:3.4s;--w:0.2s;--dx:11px"></i><i style="--x:56%;--s:7px;--d:3.7s;--w:0.4s;--dx:5px"></i><i style="--x:56%;--s:5px;--d:4.1s;--w:0.2s;--dx:22px"></i><i style="--x:76%;--s:10px;--d:2.9s;--w:0.9s;--dx:7px"></i><i style="--x:77%;--s:12px;--d:2.3s;--w:0.2s;--dx:-51px"></i><i style="--x:63%;--s:6px;--d:2.3s;--w:1.8s;--dx:45px"></i></div></div>
       <div class="vs-wrap">
         <div class="vs-side vs0" id="vs0"></div>
         <div class="vs-mid"><span>VS</span></div>
         <div class="vs-side vs1" id="vs1"></div>
+        <div class="vs-flash"></div>
       </div>
       <div class="vs-sub">Primero en llegar al piso 7 · Agencia Vilaseca S.A.</div>
     </section>
@@ -85,6 +90,28 @@
       <div id="endscreen" class="overlay end" hidden></div>
     </section>
   </main>
+
+  <!-- RANKING E HISTORIAL -->
+  <div id="stats" class="overlay modal" hidden>
+    <div class="stats-card" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+      <button id="stats-close" class="mini stats-close" aria-label="Cerrar">✕</button>
+      <h2 id="stats-title">🏆 RANKING E HISTORIAL</h2>
+      <div class="stats-tabs" role="tablist">
+        <button class="tab on" role="tab" data-tab="ranking">Ranking</button>
+        <button class="tab" role="tab" data-tab="historial">Historial de VS</button>
+      </div>
+      <div id="stats-body" class="stats-body"></div>
+    </div>
+  </div>
+
+  <!-- Inicia la ronda (espectador, o Jugador 1 si no hay espectadores) -->
+  <div id="start-wrap" hidden>
+    <button id="b-start" class="btn gold start-btn">▶ EMPEZAR RONDA</button>
+    <small id="start-note"></small>
+  </div>
+
+  <!-- La página se actualizó pero el servidor sigue siendo una versión anterior -->
+  <div id="old-server" hidden>⚠ El servidor está desactualizado: ciérralo (<b>Ctrl+C</b>) y vuelve a correr <b>npm start</b> para usar las preguntas nuevas, el ranking y el botón EMPEZAR.</div>
 
   <div id="reconnect" class="overlay solid" hidden><div>Reconectando…</div></div>
   <div id="toast" role="status"></div>

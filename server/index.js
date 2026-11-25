@@ -8,10 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const express = require('express');
+const compression = require('compression');
 const { Server } = require('socket.io');
 
 const empleados = require('../data/empleados.json');
-const preguntas = require('../data/preguntas.json');
+const db = require('./db'); // preguntas, historial de VS y ranking (SQLite)
 
 // ---------- Reglas del juego (ajustables) ----------
 const CFG = {
@@ -31,11 +32,11 @@ const CFG = {
   COUNTDOWN_MS: 3500,      // 3, 2, 1, ¡YA!
   FINISHED_RESET_MS: 25000,// vuelve a selección después de terminar
   RECONNECT_GRACE_MS: 15000,
-  VS_DELAY_MS: 1500,       // pausa tras elegir los dos (aún pueden cambiar) antes de la pantalla VS
   RANDOM_SPIN_MS: 4300,    // duración del giro estilo tragamonedas (lo anima el cliente)
   RANDOM_TOTAL_MS: 5000    // el servidor fija el personaje a los 5 s
 };
 const ADMIN_KEY = process.env.ADMIN_KEY || 'vilaseca';
+const PROTO = 4; // versión del servidor: la página avisa si se abre contra un servidor más viejo que ella (hay que reiniciarlo)
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
@@ -43,11 +44,25 @@ const server = http.createServer(app);
 const io = new Server(server, { pingInterval: 5000, pingTimeout: 8000 });
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-app.use(express.static(PUBLIC_DIR));
 
-// Identificador de versión de la página (fecha del archivo más nuevo de public/).
-// Si una pestaña abierta se reconecta y la versión cambió, se recarga sola.
-function buildId() {
+// Fluidez: se comprimen los textos (JS, CSS, HTML, JSON) y las imágenes y fuentes se guardan un año en el navegador.
+// Es seguro porque las imágenes de los personajes se piden con ?v=<fecha del archivo> y las fuentes no cambian:
+// si una imagen cambia, su dirección cambia. La página y su código se revalidan siempre (rápido, con ETag).
+app.use(compression());
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders(res, file) {
+    if (/[\\/](fotos[\\/]web|fonts)[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
+
+// Versión de la página (fecha del archivo más nuevo de public/) y direcciones de las imágenes de cada empleado.
+// Si una pestaña abierta se reconecta y la versión cambió, se recarga sola. Se calcula como mucho cada 3 s,
+// porque cada espectador que entra la pide y recorrer la carpeta cuesta.
+let snapCache = null;
+function snapshot() {
+  const now = Date.now();
+  if (snapCache && now - snapCache.at < 3000) return snapCache;
   let max = 0;
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -57,9 +72,33 @@ function buildId() {
     }
   };
   try { walk(PUBLIC_DIR); } catch (_) { /* ignorar */ }
-  return String(Math.round(max));
+  // Imágenes livianas (WebP) de public/fotos/web/; si faltan, se usan los PNG originales
+  const url = (rel) => {
+    try { return `${rel}?v=${Math.round(fs.statSync(path.join(PUBLIC_DIR, rel)).mtimeMs)}`; } catch (_) { return null; }
+  };
+  const lista = empleados.map((e) => {
+    const png = (f) => (f ? url(`fotos/${f}`) : null);
+    const img = {
+      figura: url(`fotos/web/${e.id}_fig.webp`) || png(e.figura),
+      tile: url(`fotos/web/${e.id}_tile.webp`) || png(e.figura),
+      cara: url(`fotos/web/${e.id}_cara.webp`) || png(e.foto)
+    };
+    return { ...e, img };
+  });
+  snapCache = { at: now, build: String(Math.round(max)), empleados: lista };
+  return snapCache;
 }
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+// Ranking por empleado e historial de VS (solo lectura)
+const apiError = (res, err) => { console.error('Error en la base de datos:', err.message); res.status(500).json({ error: 'No se pudo leer la base de datos' }); };
+app.get('/api/ranking', (_req, res) => {
+  try { res.json(db.getRanking()); } catch (err) { apiError(res, err); }
+});
+app.get('/api/historial', (req, res) => {
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  try { res.json({ partidas: db.getHistory(limit) }); } catch (err) { apiError(res, err); }
+});
 
 // ---------- Utilidades ----------
 const shuffle = (arr) => {
@@ -114,9 +153,9 @@ const room = {
   endInfo: null,     // si terminó porque el rival ya no podía alcanzarlo: { finisher, other, ... } para explicarlo
   message: '',
   phaseTimer: null,
-  vsTimer: null,
   gameTimers: [],
   qCounter: 0,
+  startedAt: 0,      // inicio de la partida (para la duración en el historial)
   decks: [[], []]
 };
 
@@ -171,6 +210,8 @@ function publicState() {
     ending: room.ending,
     message: room.message,
     spectators: [...bySocket.values()].filter((s) => s.slot === null).length,
+    watchers: watchersCount(),   // espectadores que ya entraron a mirar (los que siguen en el menú no cuentan)
+    ready: room.phase === 'select' && bothReady(),
     phaseMs: room.phaseMs || 0
   };
 }
@@ -188,8 +229,6 @@ function setPhase(phase, ms) {
 // ---------- Selección ----------
 function toSelect(message) {
   clearTimeout(room.phaseTimer);
-  clearTimeout(room.vsTimer);
-  room.vsTimer = null;
   room.gameTimers.forEach(clearTimeout);
   room.gameTimers = [];
   room.players.forEach(resetPlayerGameState);
@@ -202,20 +241,17 @@ function toSelect(message) {
   broadcast();
 }
 
-// Cuando los dos eligieron hay una pausa corta (todavía pueden cambiar) y empieza el VS.
-function maybeStartVs() {
-  clearTimeout(room.vsTimer);
-  room.vsTimer = null;
-  if (room.phase !== 'select') return;
-  if (!room.players.every((p) => p.token && p.locked)) return;
-  room.vsTimer = setTimeout(() => {
-    room.vsTimer = null;
-    if (room.phase !== 'select' || !room.players.every((p) => p.token && p.locked)) return;
-    setPhase('vs', CFG.VS_MS);
-    room.message = '';
-    broadcast();
-    room.phaseTimer = setTimeout(startCountdown, CFG.VS_MS);
-  }, CFG.VS_DELAY_MS);
+// Los dos eligieron personaje: la ronda no empieza sola, la inicia con el botón EMPEZAR un espectador
+// (o el Jugador 1 si no hay ningún espectador mirando). Mientras tanto todavía pueden cambiar de personaje.
+const bothReady = () => room.players.every((p) => p.token && p.locked);
+const watchersCount = () => [...bySocket.values()].filter((s) => s.slot === null && s.watching).length;
+
+function beginVs() {
+  if (room.phase !== 'select' || !bothReady()) return;
+  setPhase('vs', CFG.VS_MS);
+  room.message = '';
+  broadcast();
+  room.phaseTimer = setTimeout(startCountdown, CFG.VS_MS);
 }
 
 function startCountdown() {
@@ -239,7 +275,6 @@ function lockCharacter(p, idx) {
   p.randoming = false;
   p.randomTarget = null;
   broadcast();
-  maybeStartVs();
 }
 
 // Sorteo estilo tragamonedas: el servidor decide al instante el resultado y lo reserva;
@@ -252,7 +287,6 @@ function startRandom(p) {
   p.randoming = true;
   p.randomTarget = free[Math.floor(Math.random() * free.length)];
   broadcast();
-  maybeStartVs(); // cancela un VS pendiente si ya había elegido
   p.randomTimer = setTimeout(() => {
     p.randomTimer = null;
     if (room.phase !== 'select' || !p.token || !p.randoming) return;
@@ -320,9 +354,13 @@ function startPlaying() {
   room.endInfo = null;
   setPhase('playing');
   room.decks = [[], []];
-  // Mazos distintos: se baraja todo y se reparte alternado => nadie repite pregunta con el rival.
-  const order = shuffle(preguntas.map((_, i) => i));
-  order.forEach((qi, k) => room.decks[k % 2].push(qi));
+  room.startedAt = Date.now();
+  // La base entrega las preguntas con las menos usadas primero (empates al azar), así no se repiten
+  // entre partidas hasta agotar todo el banco. Se reparten alternadas => nadie repite pregunta con el rival.
+  let bank = [];
+  try { bank = db.loadQuestionsForGame(); } catch (err) { console.error('No se pudieron leer las preguntas:', err.message); }
+  if (!bank.length) return toSelect('No hay preguntas activas en la base de datos.');
+  bank.forEach((q, k) => room.decks[k % 2].push(q));
   room.players.forEach((p) => { p.deck = room.decks[p.slot]; p.deckPos = 0; });
   broadcast();
   room.players.forEach(sendQuestion);
@@ -334,7 +372,8 @@ function nextQuestionFor(p) {
     p.deck = shuffle(p.deck);
     p.deckPos = 0;
   }
-  const raw = preguntas[p.deck[p.deckPos++]];
+  const raw = p.deck[p.deckPos++];
+  try { db.markQuestionUsed(raw.id); } catch (err) { console.error('No se pudo registrar el uso de la pregunta:', err.message); }
   const opts = shuffle(raw.o.map((text, i) => ({ text, ok: i === raw.c })));
   return { text: raw.q, options: opts.map((o) => o.text), correctIdx: opts.findIndex((o) => o.ok) };
 }
@@ -474,11 +513,38 @@ function scheduleEnd(decide, reason) {
   }, CFG.END_DELAY_MS));
 }
 
+// Guarda el VS terminado en la base de datos (historial + ranking). Un fallo aquí no debe frenar el juego.
+function saveMatch(winnerSlot, reason) {
+  try {
+    db.saveMatch({
+      durationS: Math.round((Date.now() - room.startedAt) / 1000),
+      reason,
+      winner: winnerSlot,
+      maxQuestions: CFG.MAX_QUESTIONS,
+      targetFloor: CFG.TARGET_FLOOR,
+      players: room.players.map((p) => ({
+        slot: p.slot,
+        empId: empleados[p.charIdx].id,
+        name: empleados[p.charIdx].nombre,
+        points: p.points,
+        floor: p.floor,
+        correct: p.correct,
+        wrong: p.wrong,
+        timeouts: p.timeouts
+      }))
+    });
+    io.emit('stats-changed'); // los que tengan abierto el ranking lo actualizan
+  } catch (err) {
+    console.error('No se pudo guardar la partida en la base de datos:', err.message);
+  }
+}
+
 function finishGame(winnerSlot, reason) {
   room.players.forEach(clearPlayerTimers);
   room.players.forEach((p) => { p.current = null; });
   room.winner = winnerSlot;
   room.endReason = reason || 'floor';
+  saveMatch(room.winner, room.endReason);
   setPhase('finished', CFG.FINISHED_RESET_MS);
   broadcast();
   room.phaseTimer = setTimeout(() => toSelect(''), CFG.FINISHED_RESET_MS);
@@ -499,7 +565,6 @@ function releaseSlot(p, message) {
     resetPlayerGameState(p);
     p.cursor = p.slot === 0 ? 1 : empleados.length;
     broadcast();
-    maybeStartVs();
   } else {
     // En cualquier otra fase, se cancela la partida y se vuelve a selección.
     p.token = null;
@@ -508,13 +573,15 @@ function releaseSlot(p, message) {
 }
 
 io.on('connection', (socket) => {
-  const sess = { token: null, slot: null };
+  const sess = { token: null, slot: null, watching: false };
   bySocket.set(socket.id, sess);
 
+  const snap = snapshot();
   socket.emit('init', {
     cfg: CFG,
-    empleados,
-    build: buildId(),
+    empleados: snap.empleados,
+    build: snap.build,
+    proto: PROTO,
     serverTime: Date.now()
   });
   socket.join('spectators');
@@ -531,11 +598,13 @@ io.on('connection', (socket) => {
 
   const becomeSpectator = () => {
     sess.slot = null;
+    sess.watching = true;
     socket.join('spectators');
     socket.emit('role', { slot: null });
   };
   const becomePlayer = (p) => {
     sess.slot = p.slot;
+    sess.watching = false;
     p.socketId = socket.id;
     p.connected = true;
     clearTimeout(p.graceTimer);
@@ -576,6 +645,21 @@ io.on('connection', (socket) => {
     broadcast();
   });
 
+  // El cliente avisa que entró a mirar (botón SOLO MIRAR): cuenta como espectador y puede iniciar la ronda
+  socket.on('watch', () => {
+    if (sess.slot !== null || sess.watching) return;
+    sess.watching = true;
+    broadcast();
+  });
+
+  // Inicia la ronda: un espectador o, si no hay ninguno mirando, el Jugador 1
+  socket.on('start', () => {
+    if (room.phase !== 'select' || !bothReady()) return;
+    const host = sess.slot === null ? sess.watching : (sess.slot === 0 && watchersCount() === 0);
+    if (!host) return socket.emit('toast', 'La ronda la inicia el espectador (o el Jugador 1 si no hay espectadores).');
+    beginVs();
+  });
+
   socket.on('leave', () => {
     const p = myPlayer();
     if (!p) return;
@@ -607,7 +691,6 @@ io.on('connection', (socket) => {
     p.locked = false;
     p.charIdx = null;
     broadcast();
-    maybeStartVs();
   });
 
   socket.on('random', () => {
@@ -662,4 +745,7 @@ io.on('connection', (socket) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Ascensor Vilaseca escuchando en http://localhost:${PORT}`);
   console.log(`Clave de administrador (reiniciar sala): ${ADMIN_KEY}`);
+  const activas = db.countActiveQuestions();
+  console.log(`Base de datos: ${db.DB_PATH} · ${activas} preguntas activas`);
+  if (activas < CFG.MAX_QUESTIONS * 2) console.warn(`AVISO: con ${activas} preguntas activas se repetirán dentro de una misma partida (se necesitan al menos ${CFG.MAX_QUESTIONS * 2}).`);
 });

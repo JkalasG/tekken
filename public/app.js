@@ -30,39 +30,158 @@
 
   const socket = io({ transports: ['websocket', 'polling'] });
 
-  // ---------- Sonido ----------
+  // ---------- Sonido y música ----------
+  // Todo se genera con Web Audio (no hay archivos de audio): efectos cortos y una música de fondo suave.
+  const MUSIC_VOL = 0.6;    // volumen de la música de fondo (0 a 1). Si la quieres más baja o más alta, cambia este número.
   let actx = null;
-  let soundOn = true;
-  try { soundOn = localStorage.getItem('vil_sound') !== '0'; } catch (_) { /* ignorar */ }
-  function tone(freq, dur = 0.12, type = 'sine', vol = 0.12, delay = 0) {
+  let soundOn = true;   // interruptor general (🔊): efectos y música
+  let musicOn = true;   // solo la música de fondo (🎵)
+  try {
+    soundOn = localStorage.getItem('vil_sound') !== '0';
+    musicOn = localStorage.getItem('vil_music') !== '0';
+  } catch (_) { /* ignorar */ }
+  function audio() {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function tone(freq, dur = 0.12, type = 'sine', vol = 0.12, delay = 0, slideTo = null) {
     if (!soundOn) return;
     try {
-      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-      if (actx.state === 'suspended') actx.resume();
-      const t = actx.currentTime + delay;
-      const o = actx.createOscillator();
-      const g = actx.createGain();
+      const c = audio();
+      const t = c.currentTime + delay;
+      const o = c.createOscillator();
+      const g = c.createGain();
       o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
       g.gain.setValueAtTime(vol, t);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(actx.destination);
+      o.connect(g).connect(c.destination);
       o.start(t); o.stop(t + dur + 0.02);
     } catch (_) { /* ignorar */ }
   }
+  // Ruido filtrado (golpes, "whoosh"): el filtro barre de `from` a `to` Hz durante `dur` segundos
+  let noiseBuf = null;
+  function noise(dur, vol, from, to, delay = 0, type = 'lowpass') {
+    if (!soundOn) return;
+    try {
+      const c = audio();
+      const t = c.currentTime + delay;
+      if (!noiseBuf) {
+        noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      const src = c.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      const f = c.createBiquadFilter(); f.type = type;
+      f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(to, t + dur);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f).connect(g).connect(c.destination);
+      src.start(t); src.stop(t + dur + 0.05);
+    } catch (_) { /* ignorar */ }
+  }
   const sfx = {
-    tick: () => tone(660, 0.08, 'square', 0.06),
-    go: () => { tone(880, 0.35, 'square', 0.1); tone(1320, 0.35, 'square', 0.06); },
+    tick: () => tone(660, 0.1, 'square', 0.07),
+    go: () => { [523, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.1, i * 0.07)); tone(1047, 0.45, 'square', 0.09, 0.22); tone(1568, 0.45, 'square', 0.05, 0.22); },
     right: () => { tone(784, 0.1, 'triangle', 0.14); tone(1175, 0.18, 'triangle', 0.14, 0.09); },
-    wrong: () => { tone(160, 0.28, 'sawtooth', 0.12); },
+    wrong: () => { tone(200, 0.3, 'sawtooth', 0.11, 0, 110); },
     timeout: () => { tone(220, 0.15, 'square', 0.08); tone(150, 0.25, 'square', 0.08, 0.14); },
-    floor: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'triangle', 0.12, i * 0.08)),
+    floor: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'triangle', 0.12, i * 0.08)); tone(1568, 0.5, 'sine', 0.08, 0.34); },
     cry: () => [440, 392, 330, 262].forEach((f, i) => tone(f, 0.16, 'sine', 0.1, i * 0.12)),
     cheer: () => [784, 988, 1175].forEach((f, i) => tone(f, 0.09, 'triangle', 0.1, i * 0.06)),
     select: () => tone(520, 0.06, 'square', 0.05),
     lock: () => { tone(440, 0.08, 'square', 0.1); tone(880, 0.18, 'square', 0.1, 0.08); },
-    vs: () => { tone(110, 0.5, 'sawtooth', 0.15); tone(220, 0.5, 'square', 0.08, 0.05); },
-    win: () => [523, 659, 784, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.18, 'triangle', 0.13, i * 0.12))
+    // la pregunta aparece: campanita suave
+    question: () => { tone(988, 0.14, 'sine', 0.08); tone(1319, 0.3, 'sine', 0.07, 0.09); },
+    // el jugador toca una respuesta
+    pick: () => { tone(740, 0.07, 'triangle', 0.1); tone(1110, 0.09, 'triangle', 0.06, 0.04); },
+    // últimos segundos del tiempo: tic-tac, más agudo en los 3 últimos
+    tock: () => tone(900, 0.05, 'square', 0.05),
+    tockLast: () => { tone(1300, 0.09, 'square', 0.08); tone(650, 0.09, 'square', 0.04, 0.02); },
+    // pantalla VS: viento de entrada + golpe grave cuando cae el "VS"
+    vs: () => {
+      noise(0.55, 0.12, 300, 4200, 0, 'bandpass');
+      tone(110, 0.5, 'sawtooth', 0.1, 0.05);
+      tone(80, 0.9, 'sine', 0.32, 0.55, 28);
+      noise(0.5, 0.22, 3200, 140, 0.55, 'lowpass');
+      tone(880, 0.5, 'square', 0.04, 0.6, 440);
+    },
+    win: () => { [523, 659, 784, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.18, 'triangle', 0.13, i * 0.12)); tone(1568, 0.9, 'sine', 0.08, 0.9); },
+    lose: () => [392, 349, 311, 233].forEach((f, i) => tone(f, 0.3, 'triangle', 0.1, i * 0.22))
   };
+
+  // Música de fondo: acordes suaves (La menor · Fa · Do · Sol) con un arpegio. Más tranquila en la selección y el VS,
+  // un poco más activa mientras se juega, y se apaga en la pantalla del ganador para que se oiga la fanfarria.
+  const music = (() => {
+    const BEAT = 60 / 74;                                                   // pulso lento
+    const PROG = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];   // notas MIDI de cada acorde
+    const ARP = [0, 1, 2, 1, 2, 1, 0, 1];                                   // arpegio por corcheas
+    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    let mode = 'off';   // off | calm | play
+    let bus = null, timer = null, stopTimer = null, nextT = 0, step = 0, running = false;
+
+    function note(type, freq, t, dur, vol, attack) {
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(bus);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
+    function playStep(st, t) {
+      const chord = PROG[Math.floor(st / 8) % PROG.length];
+      const e = st % 8;
+      if (e === 0) {   // colchón de acordes largos + nota grave
+        chord.forEach((n) => { note('sine', mtof(n), t, BEAT * 4.2, 0.05, 1.1); note('triangle', mtof(n) * 1.003, t, BEAT * 4.2, 0.018, 1.2); });
+        note('sine', mtof(chord[0] - 24), t, BEAT * 2.2, 0.16, 0.04);
+      }
+      if (mode === 'play' && e === 4) note('sine', mtof(chord[0] - 24), t, BEAT * 1.6, 0.12, 0.04);
+      if (mode === 'play' || e % 2 === 0) note('triangle', mtof(chord[ARP[e]] + 12 + (e === 6 ? 12 : 0)), t, BEAT * 0.95, mode === 'play' ? 0.05 : 0.032, 0.02);
+    }
+    function schedule() {
+      if (!running || !actx) return;
+      if (nextT < actx.currentTime) nextT = actx.currentTime + 0.05;   // tras una pausa de la pestaña no se acumulan notas
+      while (nextT < actx.currentTime + 0.4) { playStep(step, nextT); nextT += BEAT / 2; step++; }
+    }
+    const level = () => (soundOn && musicOn && mode !== 'off' ? (mode === 'play' ? MUSIC_VOL * 1.15 : MUSIC_VOL) : 0);
+    function refresh() {
+      const want = level();
+      try {
+        if (want > 0) {
+          audio();
+          if (!bus) {
+            bus = actx.createGain(); bus.gain.value = 0;
+            const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;   // quita lo áspero
+            bus.connect(lp).connect(actx.destination);
+          }
+          clearTimeout(stopTimer);
+          if (!running) { running = true; nextT = actx.currentTime + 0.1; timer = setInterval(schedule, 120); }
+          bus.gain.setTargetAtTime(want, actx.currentTime, 0.6);
+        } else if (bus) {
+          bus.gain.setTargetAtTime(0, actx.currentTime, 0.4);
+          clearTimeout(stopTimer);
+          stopTimer = setTimeout(() => { if (level() === 0) { running = false; clearInterval(timer); } }, 2500);
+        }
+      } catch (_) { /* ignorar */ }
+    }
+    return { refresh, setMode: (m) => { if (m !== mode) { mode = m; refresh(); } } };
+  })();
+
+  // Los navegadores solo dejan sonar tras un clic o una tecla: en el primero se activa el audio y la música
+  ['pointerdown', 'keydown'].forEach((evn) => document.addEventListener(evn, () => {
+    if (soundOn) { try { audio(); } catch (_) { /* ignorar */ } }
+    music.refresh();
+  }, { once: true, capture: true }));
+  // Pestaña oculta: silencio
+  document.addEventListener('visibilitychange', () => {
+    if (!actx) return;
+    if (document.hidden) actx.suspend(); else if (soundOn) actx.resume();
+  });
 
   // ---------- Utilidades de UI ----------
   let toastTimer;
@@ -73,11 +192,34 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
   }
-  const avatar = (e) => (e.foto ? `<img src="fotos/${encodeURIComponent(e.foto)}" alt="">` : `<span class="emo">${e.emoji || '🙂'}</span>`);
+  // Imágenes de cada empleado: el servidor manda en e.img las direcciones de las versiones livianas (WebP) ya con su versión
+  const imgUrl = (e, kind) => (e.img && e.img[kind]) || null;
+  const avatar = (e) => { const u = imgUrl(e, 'cara'); return u ? `<img src="${u}" alt="">` : `<span class="emo">${e.emoji || '🙂'}</span>`; };
   // figura completa recortada (sin fondo) para la pantalla de selección; si no hay, usa la foto/emoji
-  const figure = (e) => (e.figura ? `<img class="figura" src="fotos/${encodeURIComponent(e.figura)}" alt="">` : avatar(e));
+  const figure = (e) => { const u = imgUrl(e, 'figura'); return u ? `<img class="figura" src="${u}" alt="">` : avatar(e); };
   // retrato alto para la franja de selección: la figura recortada (se ve la cabeza y el torso)
-  const tile = (e) => (e.figura ? `<img src="fotos/${encodeURIComponent(e.figura)}" alt="">` : avatar(e));
+  const tile = (e) => { const u = imgUrl(e, 'tile'); return u ? `<img src="${u}" alt="">` : avatar(e); };
+
+  // Precarga en segundo plano (miniaturas, caras y figuras, en ese orden de uso, 4 a la vez): así al mover el cursor,
+  // en el VS y en el juego las imágenes ya están en memoria y no aparecen a tirones.
+  const PRELOADED = [];
+  let preloadStarted = false;
+  function preloadImages() {
+    if (preloadStarted) return;
+    preloadStarted = true;
+    const urls = [];
+    ['tile', 'cara', 'figura'].forEach((k) => EMP.forEach((e) => { const u = imgUrl(e, k); if (u) urls.push(u); }));
+    let i = 0;
+    const next = () => {
+      if (i >= urls.length) return;
+      const im = new Image();
+      PRELOADED.push(im);
+      im.onload = im.onerror = next;
+      im.src = urls[i++];
+      if (im.decode) im.decode().catch(() => { /* ignorar */ });
+    };
+    for (let k = 0; k < 4; k++) next();
+  }
   const portrait = (e, extra = '') => `<div class="portrait ${extra}" style="--c:${e ? e.color : '#555'}">${e ? avatar(e) : '?'}</div>`;
   const empOf = (slot) => {
     const p = S && S.players[slot];
@@ -94,6 +236,7 @@
   socket.on('connect', () => {
     $('#reconnect').hidden = true;
     socket.emit('hello', { token });
+    if (entered && ME === null) socket.emit('watch'); // al reconectar, un espectador vuelve a contar como tal
   });
   socket.on('disconnect', () => { $('#reconnect').hidden = false; });
   let BUILD = null;
@@ -102,8 +245,11 @@
     if (BUILD && d.build && d.build !== BUILD) { location.reload(); return; }
     BUILD = d.build;
     CFG = d.cfg; EMP = d.empleados;
+    $('#old-server').hidden = (d.proto || 0) >= 4; // la página es nueva pero el servidor es viejo: hay que reiniciarlo
     buildGrid();
     buildBuilding();
+    (window.requestIdleCallback || setTimeout)(preloadImages);
+    if (!statsEl.hidden && statsData) renderStats(); // fotos de empleados si el ranking se abrió antes de conectar
   });
   socket.on('role', ({ slot }) => {
     ME = slot;
@@ -118,9 +264,11 @@
     p.q = q;
     p.total = q.ms;
     p.deadline = performance.now() + q.ms;
+    p.lastSec = null;
     p.locked = false;
     p.picked = null;
     renderQuestion(q.slot);
+    if (ME === q.slot) sfx.question();
   });
 
   socket.on('result', (r) => {
@@ -163,6 +311,8 @@
     }
     $('#btn-leave').hidden = ME === null;
     $('#btn-sound').textContent = soundOn ? '🔊' : '🔇';
+    $('#btn-music').classList.toggle('off', !musicOn || !soundOn);
+    $('#btn-music').title = musicOn ? 'Música de fondo: activada' : 'Música de fondo: apagada';
   }
 
   document.addEventListener('click', (e) => {
@@ -174,12 +324,19 @@
       render();
     }
   });
-  $('#m-spec').addEventListener('click', () => { entered = true; render(); });
+  $('#m-spec').addEventListener('click', () => { entered = true; socket.emit('watch'); render(); });
   $('#btn-leave').addEventListener('click', () => { socket.emit('leave'); });
   $('#btn-sound').addEventListener('click', () => {
     soundOn = !soundOn;
     try { localStorage.setItem('vil_sound', soundOn ? '1' : '0'); } catch (_) { /* ignorar */ }
     if (soundOn) sfx.select();
+    music.refresh();
+    updateTopbar();
+  });
+  $('#btn-music').addEventListener('click', () => {
+    musicOn = !musicOn;
+    try { localStorage.setItem('vil_music', musicOn ? '1' : '0'); } catch (_) { /* ignorar */ }
+    music.refresh();
     updateTopbar();
   });
   $('#btn-admin').addEventListener('click', () => {
@@ -187,10 +344,124 @@
     if (key) socket.emit('admin-reset', { key });
   });
 
+  // ---------- Ranking e historial de VS (datos de la base SQLite, vía /api) ----------
+  const statsEl = $('#stats');
+  let statsTab = 'ranking';
+  let statsData = null;   // { r: ranking, h: historial } de la última consulta
+  let statsSeq = 0;
+  const MEDAL = ['🥇', '🥈', '🥉'];
+  const REASON_TXT = { floor: 'llegó al piso 7', limit: 'ganó por puntos', catchup: 'el rival ya no podía alcanzarlo' };
+  const empById = (id) => EMP.find((e) => e.id === id);
+  // Foto y nombre del empleado (si ya no existe en data/empleados.json se usa el nombre guardado en la partida)
+  const ava = (id) => {
+    const e = empById(id);
+    return `<span class="ava" style="--c:${e ? e.color : '#55608c'}">${e ? avatar(e) : '<span class="emo">🙂</span>'}</span>`;
+  };
+  const nameOf = (id, nombre) => esc(empById(id) ? empById(id).nombre : nombre);
+  const fmtDate = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleString('es-BO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+  const fmtDur = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const EMPTY_STATS = '<p class="stats-empty">Todavía no hay partidas terminadas.<br>¡Sé el primero en llegar al piso 7!</p>';
+
+  function rankingHTML(d) {
+    if (!d.ranking.length) return EMPTY_STATS;
+    const rows = d.ranking.map((r, i) => `
+      <tr class="${i < 3 ? `top top${i + 1}` : ''}">
+        <td class="pos">${MEDAL[i] || i + 1}</td>
+        <td class="nm"><span class="who">${ava(r.empleadoId)}<b>${nameOf(r.empleadoId, r.nombre)}</b></span></td>
+        <td class="v"><b>${r.victorias}</b></td><td>${r.empates}</td><td>${r.derrotas}</td><td>${r.partidas}</td><td>${r.puntos}</td>
+      </tr>`).join('');
+    return `<table class="rank">
+        <thead><tr><th>#</th><th class="nm">Empleado</th><th title="Victorias">V</th><th title="Empates">E</th><th title="Derrotas">D</th><th title="Partidas jugadas">PJ</th><th title="Puntos acumulados">Pts</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="stats-foot">${plural(d.total, 'partida jugada', 'partidas jugadas')} · orden: más victorias, menos derrotas, más puntos</p>`;
+  }
+
+  function historyHTML(d) {
+    if (!d.partidas.length) return EMPTY_STATS;
+    const items = d.partidas.map((m) => {
+      const side = (j) => `
+        <div class="mside p${j.slot} ${m.ganador === j.slot ? 'win' : ''}">
+          ${ava(j.empleadoId)}
+          <div class="sinfo"><b>${nameOf(j.empleadoId, j.nombre)}</b><small>${j.puntos} pts · piso ${j.piso}</small></div>
+        </div>`;
+      const w = m.ganador === null ? null : m.jugadores.find((j) => j.slot === m.ganador);
+      const foot = w ? `🏆 Ganó ${nameOf(w.empleadoId, w.nombre)} · ${REASON_TXT[m.motivo] || ''}` : '🤝 Empate';
+      return `
+        <div class="match">
+          <div class="mhead"><span>VS #${m.id}</span><span>${fmtDate(m.jugadaEn)}</span></div>
+          <div class="mrow">${side(m.jugadores[0])}<div class="mvs">VS</div>${side(m.jugadores[1])}</div>
+          <div class="mfoot">${foot} · ${fmtDur(m.duracionS)}</div>
+        </div>`;
+    }).join('');
+    return `<div class="hist">${items}</div><p class="stats-foot">Últimas ${plural(d.partidas.length, 'partida', 'partidas')}</p>`;
+  }
+
+  function renderStats() {
+    $$('.tab', statsEl).forEach((t) => t.classList.toggle('on', t.dataset.tab === statsTab));
+    if (!statsData) return;
+    $('#stats-body').innerHTML = statsTab === 'ranking' ? rankingHTML(statsData.r) : historyHTML(statsData.h);
+  }
+
+  async function loadStats() {
+    const seq = ++statsSeq;
+    const get = (url) => fetch(url).then((x) => { if (!x.ok) throw new Error(url); return x.json(); });
+    try {
+      const [r, h] = await Promise.all([get('/api/ranking'), get('/api/historial?limit=50')]);
+      if (seq !== statsSeq) return;
+      statsData = { r, h };
+      renderStats();
+    } catch (_) {
+      if (seq === statsSeq) $('#stats-body').innerHTML = '<p class="stats-empty">No se pudo cargar. Revisa la conexión e inténtalo de nuevo.</p>';
+    }
+  }
+
+  function openStats() {
+    sfx.select();
+    statsData = null;
+    $('#stats-body').innerHTML = '<p class="stats-empty">Cargando…</p>';
+    renderStats();
+    statsEl.hidden = false;
+    $('#stats-close').focus();
+    loadStats();
+  }
+  const closeStats = () => { statsEl.hidden = true; ++statsSeq; };
+
+  $('#btn-rank').addEventListener('click', openStats);
+  $('#m-rank').addEventListener('click', openStats);
+  $('#stats-close').addEventListener('click', closeStats);
+  statsEl.addEventListener('click', (ev) => {
+    if (ev.target === statsEl) closeStats();
+    const tab = ev.target.closest('.tab');
+    if (tab) { statsTab = tab.dataset.tab; renderStats(); }
+  });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !statsEl.hidden) closeStats(); });
+  // Cuando termina un VS el servidor avisa: si el ranking está abierto, se actualiza solo
+  socket.on('stats-changed', () => { if (!statsEl.hidden) loadStats(); });
+  // enlaces directos: /#ranking y /#historial
+  if (['#ranking', '#historial'].includes(location.hash)) { statsTab = location.hash.slice(1); openStats(); }
+
+  // ---------- Inicio de la ronda ----------
+  // Cuando los dos eligieron personaje, la ronda la inicia con este botón un espectador o, si no hay ninguno, el Jugador 1.
+  function updateStart() {
+    const wrap = $('#start-wrap');
+    const host = !!S.ready && entered && S.phase === 'select' && (ME === null || (ME === 0 && S.watchers === 0));
+    wrap.hidden = !host;
+    if (host) $('#start-note').textContent = ME === null ? 'Los dos jugadores ya eligieron su personaje' : 'No hay espectadores: la inicias tú, Jugador 1';
+  }
+  $('#b-start').addEventListener('click', () => { sfx.lock(); socket.emit('start'); });
+
   // ---------- Render general ----------
   function render() {
     if (!S || !CFG) return;
     updateTopbar();
+    updateStart();
+    // música: tranquila al elegir y en el VS, un poco más activa jugando, apagada en la pantalla del ganador
+    music.setMode(!entered ? 'off' : S.phase === 'playing' ? 'play' : S.phase === 'finished' ? 'off' : 'calm');
 
     let view;
     if (!entered) view = 'v-menu';
@@ -206,7 +477,7 @@
     if (view === 'v-menu') renderMenu();
     if (view === 'v-select') renderSelect();
     if (view === 'v-vs') renderVs();
-    if (view === 'v-game') renderGame();
+    if (view === 'v-game') { renderGame(); scheduleFit(); }
 
     if (S.phase !== lastPhase) onPhaseChange(S.phase, lastPhase);
     lastPhase = S.phase;
@@ -445,12 +716,14 @@
     if (ME === null) {
       c.innerHTML = '';
       c.dataset.key = '';
-      hint.innerHTML = '👀 Estás mirando como espectador. Si hay un lugar libre, usa el botón <b>Entrar</b>.';
+      hint.innerHTML = S.ready
+        ? '👀 Los dos jugadores ya eligieron. Pulsa <b>EMPEZAR RONDA</b> para iniciar.'
+        : '👀 Estás mirando como espectador. Cuando los dos jugadores elijan personaje, tú inicias la ronda. Si hay un lugar libre, usa el botón <b>Entrar</b>.';
       return;
     }
     const me = S.players[ME];
     const bothLocked = S.players.every((p) => p.locked);
-    const key = `${me.locked}|${me.randoming}|${S.players[1 - ME].taken}|${bothLocked}`;
+    const key = `${me.locked}|${me.randoming}|${S.players[1 - ME].taken}|${bothLocked}|${S.watchers}`;
     if (c.dataset.key === key) return;
     c.dataset.key = key;
     if (me.randoming) {
@@ -460,7 +733,9 @@
       c.innerHTML = '<button class="btn" id="b-unlock">↩ CAMBIAR PERSONAJE</button><button class="btn" id="b-rand2">🎲 AL AZAR</button>';
       $('#b-unlock').onclick = () => socket.emit('unlock');
       $('#b-rand2').onclick = () => { sfx.select(); socket.emit('random'); };
-      hint.textContent = bothLocked ? '¡Listos! Empezando…'
+      hint.textContent = bothLocked
+        ? (S.watchers > 0 ? '¡Listos! Esperando que el espectador inicie la ronda… (aún puedes cambiar de personaje)'
+          : (ME === 0 ? '¡Listos! Pulsa EMPEZAR RONDA cuando quieras. (aún puedes cambiar de personaje)' : '¡Listos! Esperando que el Jugador 1 inicie la ronda… (aún puedes cambiar de personaje)'))
         : (S.players[1 - ME].taken ? 'Esperando que tu rival elija… (puedes cambiar haciendo clic en otro empleado)' : 'Esperando a que entre tu rival… (puedes cambiar haciendo clic en otro empleado)');
     } else {
       c.innerHTML = '<button class="btn" id="b-rand">🎲 AL AZAR</button><button class="btn gold" id="b-lock">✔ ELEGIR</button>';
@@ -503,10 +778,14 @@
   function renderVs() {
     [0, 1].forEach((s) => {
       const e = empOf(s);
-      $(`#vs${s}`).innerHTML = `
+      const box = $(`#vs${s}`);
+      const key = e ? e.id : '';
+      if (box.dataset.key === key && box.innerHTML) return; // ya dibujado: no se reinician las animaciones
+      box.dataset.key = key;
+      box.innerHTML = `
         <div class="tagp">JUGADOR ${s + 1}</div>
         <div class="vfig" style="--c:${e ? e.color : '#888'}">${e ? figure(e) : ''}</div>
-        <div class="cname" style="--c:${e ? e.color : '#c9a0ff'}">${e ? esc(e.nombre) : ''}</div>
+        <div class="cname" data-t="${e ? esc(e.nombre) : ''}" style="--c:${e ? e.color : '#c9a0ff'}">${e ? esc(e.nombre) : ''}</div>
         <div class="ccargo">${e ? esc(e.cargo) : ''}</div>`;
     });
   }
@@ -588,8 +867,7 @@
         <div class="qbox">
           <div class="qwrap">
             <div class="timer"><i></i><b>20</b></div>
-            <div class="qn"></div>
-            <div class="qtext"></div>
+            <div class="qcard"><div class="qn"></div><div class="qtext"></div></div>
             <div class="opts"></div>
             <div class="fb"></div>
           </div>
@@ -674,6 +952,36 @@
     });
   }
 
+  // La pregunta y las 4 respuestas tienen que verse completas sin bajar la página. Si el texto es largo y el panel
+  // no cabe en la altura visible, se achica un poco la letra (variable --fs del panel) hasta que quepa.
+  let fitQueued = false;
+  function fitPanels() {
+    fitQueued = false;
+    const main = $('#main');
+    if (!main || $('#v-game').hidden) return;
+    const mt = main.getBoundingClientRect().top;
+    [0, 1].forEach((s) => {
+      const el = $(`#panel-${s}`);
+      const opts = el && $('.opts', el);
+      if (!opts || !opts.children.length) return;
+      const sobra = () => el.getBoundingClientRect().bottom - mt > main.clientHeight - 6;
+      // Solo se recalcula si cambió la pregunta o el tamaño de la ventana, o si lo que hay ahora no cabe (así no se hacen cálculos de más)
+      const key = `${P[s].q ? P[s].q.id : ''}|${window.innerWidth}x${window.innerHeight}`;
+      if (el.dataset.fit === key && !sobra()) return;
+      el.dataset.fit = key;
+      let fs = 1;
+      el.style.setProperty('--fs', fs);
+      if (el.getBoundingClientRect().top - mt > main.clientHeight * 0.5) return; // el panel empieza más abajo de la pantalla (celular con edificio arriba): no se puede ajustar a la altura
+      while (fs > 0.55 && sobra()) {
+        fs = Math.round((fs - 0.05) * 100) / 100;
+        el.style.setProperty('--fs', fs);
+      }
+    });
+  }
+  const scheduleFit = () => { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fitPanels); } };
+  window.addEventListener('resize', scheduleFit);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleFit);
+
   function renderQuestion(slot) {
     const p = P[slot];
     const el = $(`#panel-${slot}`);
@@ -681,6 +989,8 @@
     const q = p.q;
     $('.qn', el).textContent = `PREGUNTA ${q.n} / ${q.max || CFG.MAX_QUESTIONS}`;
     $('.qtext', el).textContent = q.text;
+    const qc = $('.qcard', el);
+    qc.classList.remove('flash'); void qc.offsetWidth; qc.classList.add('flash'); // la tarjeta "entra" con cada pregunta nueva
     const fb = $('.fb', el);
     fb.textContent = ''; fb.className = 'fb';
     const rs = $('.rival-status', el);
@@ -694,6 +1004,7 @@
       $$('.opt', el).forEach((b) => b.addEventListener('click', () => choose(slot, Number(b.dataset.i))));
     }
     if (S && !$('#v-game').hidden) renderGame();
+    scheduleFit();
   }
 
   function choose(slot, i) {
@@ -701,6 +1012,7 @@
     if (!p.q || p.locked || S.phase !== 'playing') return;
     p.locked = true;
     p.picked = i;
+    sfx.pick();
     const el = $(`#panel-${slot}`);
     $$('.opt', el).forEach((b, k) => { b.disabled = true; b.classList.toggle('picked', k === i); });
     socket.emit('answer', { id: p.q.id, choice: i });
@@ -756,7 +1068,12 @@
         if (!p.deadline) { return; }
         const left = Math.max(0, p.deadline - performance.now());
         $('i', t).style.width = `${(left / p.total) * 100}%`;
-        $('b', t).textContent = Math.ceil(left / 1000);
+        const sec = Math.ceil(left / 1000);
+        $('b', t).textContent = sec;
+        if (ME === s && !p.locked && sec !== p.lastSec) {
+          p.lastSec = sec;
+          if (sec > 0 && sec <= 3) sfx.tockLast(); else if (sec > 3 && sec <= 5) sfx.tock();
+        }
         t.classList.toggle('warn', left <= 10000 && left > 5000);
         t.classList.toggle('danger', left <= 5000);
       });
@@ -831,30 +1148,32 @@
     const alive = () => canvas.isConnected && !canvas.closest('[hidden]');
     const scale = reduce ? 0.35 : 1;
     [0, 350, 900, 1700, 3000, 4800].forEach((t, k) => {
-      phaseTimers.push(setTimeout(() => { if (!alive()) return; resize(); burst(true, Math.round((k === 0 ? 90 : 60) * scale)); burst(false, Math.round((k === 0 ? 90 : 60) * scale)); }, t));
+      phaseTimers.push(setTimeout(() => { if (!alive()) return; resize(); burst(true, Math.round((k === 0 ? 60 : 36) * scale)); burst(false, Math.round((k === 0 ? 60 : 36) * scale)); }, t));
     });
     const rainIv = setInterval(() => {
       if (!alive()) return clearInterval(rainIv);
       for (let i = 0; i < 2; i++) add(Math.random() * W, -10, (Math.random() - 0.5) * 1.6, 1 + Math.random() * 2.2);
-    }, reduce ? 400 : 110);
+    }, reduce ? 400 : 170);
     phaseTimers.push(setTimeout(() => clearInterval(rainIv), 12000));
     let last = performance.now();
     const tick = (now) => {
       if (!alive()) return;
       const dt = Math.min(2.2, (now - last) / 16.7);
       last = now;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
       for (let i = parts.length - 1; i >= 0; i--) {
         const p = parts[i];
         p.vy += 0.3 * dt; p.vx *= 0.996; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life += dt;
         if (p.y > H + 30 || p.life > p.max) { parts.splice(i, 1); continue; }
-        ctx.save();
         ctx.globalAlpha = Math.min(1, (p.max - p.life) / 40);
-        ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(1, Math.cos(p.life * 0.18 + p.rot));
+        // trasladar + girar + aplastar en una sola matriz
+        const cs = Math.cos(p.rot), sn = Math.sin(p.rot), sy = Math.cos(p.life * 0.18 + p.rot);
+        ctx.setTransform(dpr * cs, dpr * sn, -dpr * sn * sy, dpr * cs * sy, dpr * p.x, dpr * p.y);
         ctx.fillStyle = p.c;
         if (p.round) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.2, 0, 6.283); ctx.fill(); } else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
       }
+      ctx.globalAlpha = 1;
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -900,6 +1219,7 @@
         <div class="v-sub">${sub}</div>
         <div class="v-actions">
           ${ME !== null ? '<button class="btn gold" id="b-again">VOLVER A ELEGIR PERSONAJES</button>' : ''}
+          <button class="btn ghost" id="b-rank">🏆 VER RANKING</button>
           <div class="auto">Nueva selección en <span id="auto-n">${Math.round(CFG.FINISHED_RESET_MS / 1000)}</span> s</div>
         </div>
         <canvas class="confetti-canvas"></canvas>
@@ -907,6 +1227,7 @@
     ov.hidden = false;
     const again = $('#b-again');
     if (again) again.onclick = () => socket.emit('again');
+    $('#b-rank').onclick = openStats;
     let n = Math.round(CFG.FINISHED_RESET_MS / 1000);
     const iv = setInterval(() => {
       n--; const sp = $('#auto-n'); if (sp) sp.textContent = Math.max(0, n);
@@ -914,12 +1235,12 @@
     }, 1000);
     phaseTimers.push(setTimeout(() => clearInterval(iv), CFG.FINISHED_RESET_MS));
     fireConfetti($('.confetti-canvas', ov));
-    sfx.win();
+    if (draw) sfx.cheer(); else if (ME !== null && !iWon) sfx.lose(); else sfx.win();
   }
 
   // ---------- Teclado ----------
   document.addEventListener('keydown', (ev) => {
-    if (!S || !entered || ME === null || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (!S || !entered || ME === null || ev.ctrlKey || ev.metaKey || ev.altKey || !statsEl.hidden) return;
     const k = ev.key;
     if (S.phase === 'select') {
       const me = S.players[ME];

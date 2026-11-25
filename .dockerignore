@@ -1,0 +1,25 @@
+.git
+.gitignore
+node_modules
+npm-debug.log*
+
+# imágenes originales y material que el juego no usa cuando está corriendo
+tekken
+tekken2
+fotos_credencial
+public/fotos/_realista
+presentacion.pdf
+reglas.txt
+README.md
+data/empleados_ejemplo.json
+
+# la base de datos vive en el volumen de Docker, no dentro de la imagen
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# configuración local y archivos de Docker
+.env
+Dockerfile
+docker-compose.yml
+.dockerignore

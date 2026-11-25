@@ -1,5 +1,6 @@
-// Simulación de una partida completa con 2 bots + 1 espectador (prueba de humo).
+// Simulación de una partida completa con 2 bots + 1 espectador que inicia la ronda (prueba de humo).
 // Uso: node scripts/simulacion.js [url]
+// Los bots toman las respuestas correctas de data/preguntas.json.
 const { io } = require('socket.io-client');
 const preguntas = require('../data/preguntas.json');
 const url = process.argv[2] || 'http://localhost:3000';
@@ -29,7 +30,11 @@ function bot(slot, accuracy) {
 (async () => {
   const spec = io(url, { transports: ['websocket'] });
   let phases = [];
-  spec.on('state', (st) => { if (phases[phases.length - 1] !== st.phase) { phases.push(st.phase); console.log('[ESP] fase ->', st.phase); } });
+  spec.on('connect', () => spec.emit('watch')); // entra a mirar: es quien inicia la ronda
+  spec.on('state', (st) => {
+    if (phases[phases.length - 1] !== st.phase) { phases.push(st.phase); console.log('[ESP] fase ->', st.phase); }
+    if (st.ready) spec.emit('start'); // los dos bots ya eligieron personaje
+  });
   const seen = new Set();
   spec.on('question', (q) => seen.add(`${q.slot}:${q.text}`));
   const [a, b] = await Promise.all([bot(0, 0.9), bot(1, 0.6)]);
@@ -38,6 +43,7 @@ function bot(slot, accuracy) {
   const overlap = s0.filter((t) => s1.has(t));
   console.log('Preguntas repetidas entre jugadores:', overlap.length);
   console.log('Fases vistas por el espectador:', phases.join(' > '));
+  console.log('Aviso: esta partida de prueba quedó guardada en el ranking e historial. Para dejarlos en cero: npm run limpiar -- --si');
   spec.close();
   process.exit(0);
 })();

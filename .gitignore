@@ -1,2 +1,9 @@
 node_modules/
 *.log
+# base de datos SQLite (ranking e historial son datos de la exposición; las preguntas se recrean desde data/preguntas.json)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# configuración local del despliegue con Docker (contiene la clave de administrador)
+.env
