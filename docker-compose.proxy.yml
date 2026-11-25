@@ -1,0 +1,33 @@
+# Ascensor Vilaseca detrás de nginx-proxy (nginxproxy/nginx-proxy o jwilder/nginx-proxy, con o sin acme-companion).
+#
+# Se suma al docker-compose.yml principal: el contenedor deja de publicar un puerto en el servidor, se une a la red
+# del proxy y le avisa el dominio. nginx-proxy ya pasa los WebSockets solo, no hay que configurar nada más.
+#
+# Pon esto en el archivo .env (ver .env.example) y usa los comandos de siempre (docker compose up -d --build):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml
+#   DOMINIO=juego.tudominio.com
+#   PROXY_NETWORK=nginx-proxy        # nombre de la red del proxy: míralo con `docker network ls`
+#   LETSENCRYPT_EMAIL=tu@correo.com  # solo si usas acme-companion para el HTTPS
+#
+# Sirve con nginx-proxy (por las variables VIRTUAL_HOST...) y también con Nginx Proxy Manager: en ese caso las variables
+# se ignoran y en el panel se crea el "Proxy Host" con Forward Hostname = ascensor_vilaseca, Forward Port = 3000 y
+# "Websockets Support" activado.
+services:
+  ascensor:
+    container_name: ascensor_vilaseca   # nombre fijo dentro de la red del proxy
+    ports: !reset []        # sin puerto publicado: solo se entra por el proxy
+    expose:
+      - "3000"
+    environment:
+      VIRTUAL_HOST: ${DOMINIO:?Define DOMINIO en el archivo .env (por ejemplo juego.tudominio.com)}
+      VIRTUAL_PORT: "3000"
+      LETSENCRYPT_HOST: ${DOMINIO}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:-nginx-proxy}
+    external: true

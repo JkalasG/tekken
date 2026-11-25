@@ -147,6 +147,22 @@ El juego queda en `http://IP-DEL-SERVIDOR:3000` (o el `HOST_PORT` que pongas). S
   ```
 - **Borrar todo, incluida la base:** `docker compose down -v` (sin `-v` se conservan los datos).
 
+### Detrás de nginx-proxy
+
+Si en el servidor ya corre [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) (con o sin acme-companion para el HTTPS), usa el archivo `docker-compose.proxy.yml`: el contenedor no publica ningún puerto, se une a la red del proxy y le avisa el dominio (`VIRTUAL_HOST`). nginx-proxy ya pasa los WebSockets solo.
+
+1. Apunta el dominio (registro A) a la IP del servidor y mira cómo se llama la red del proxy: `docker network ls` (o `docker inspect <contenedor-del-proxy> --format '{{json .NetworkSettings.Networks}}'`).
+2. En `.env` agrega (hay un ejemplo comentado en `.env.example`):
+   ```
+   COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml
+   DOMINIO=juego.tudominio.com
+   PROXY_NETWORK=nginx-proxy
+   LETSENCRYPT_EMAIL=tu@correo.com
+   ```
+3. `docker compose up -d --build` (los mismos comandos de siempre). Entra a `https://juego.tudominio.com`.
+
+Si tu proxy es **Nginx Proxy Manager**, el mismo archivo sirve (usa la red de tus otras apps en `PROXY_NETWORK`, por ejemplo `docker_red-agencia`); las variables `VIRTUAL_HOST` se ignoran y en el panel creas el Proxy Host con *Forward Hostname* `ascensor_vilaseca`, *Forward Port* `3000` y *Websockets Support* activado.
+
 ## Fluidez
 
 - **Imágenes livianas:** el juego descarga versiones WebP de los personajes (`public/fotos/web/`, 1 MB en total en vez de 12.6 MB de PNG) y las precarga en segundo plano. Se generan solas al procesar un personaje; para regenerarlas todas: `python scripts/procesar_personajes.py --web`.
