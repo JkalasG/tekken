@@ -28,7 +28,7 @@
     try { sessionStorage.setItem('vil_token', token); } catch (_) { /* ignorar */ }
   }
 
-  const socket = io({ transports: ['websocket', 'polling'] });
+  const socket = io({ transports: ['polling', 'websocket'] });
 
   // ---------- Sonido y música ----------
   // Todo se genera con Web Audio (no hay archivos de audio): efectos cortos y una música de fondo suave.
@@ -239,6 +239,7 @@
     if (entered && ME === null) socket.emit('watch'); // al reconectar, un espectador vuelve a contar como tal
   });
   socket.on('disconnect', () => { $('#reconnect').hidden = false; });
+  socket.on('connect_error', () => { $('#reconnect').hidden = false; });
   let BUILD = null;
   socket.on('init', (d) => {
     // la página se actualizó mientras esta pestaña estaba abierta: recargar
